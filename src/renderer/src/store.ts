@@ -21,6 +21,12 @@ interface UiState {
   editView: EditViewMode
   editRawFormat: EditRawFormat
 
+  /**
+   * Per-table data-grid column order, keyed by `connectionId::tableName`.
+   * Holds data-attribute ids only (never the actions column). Persisted.
+   */
+  columnOrder: Record<string, string[]>
+
   setActiveConnection: (id?: string) => void
   openTable: (connectionId: string, tableName: string) => void
   closeTable: (key: string) => void
@@ -28,9 +34,11 @@ interface UiState {
   closeConnectionTables: (connectionId: string) => void
   setEditView: (view: EditViewMode) => void
   setEditRawFormat: (fmt: EditRawFormat) => void
+  setColumnOrder: (key: string, order: string[]) => void
+  resetColumnOrder: (key: string) => void
 }
 
-const tableKey = (connectionId: string, tableName: string): string =>
+export const tableKey = (connectionId: string, tableName: string): string =>
   `${connectionId}::${tableName}`
 
 export const useUiStore = create<UiState>()(
@@ -39,6 +47,7 @@ export const useUiStore = create<UiState>()(
       openTables: [],
       editView: 'tree',
       editRawFormat: 'document',
+      columnOrder: {},
 
       setActiveConnection: (id) => set({ activeConnectionId: id }),
 
@@ -81,14 +90,28 @@ export const useUiStore = create<UiState>()(
         }),
 
       setEditView: (view) => set({ editView: view }),
-      setEditRawFormat: (fmt) => set({ editRawFormat: fmt })
+      setEditRawFormat: (fmt) => set({ editRawFormat: fmt }),
+
+      setColumnOrder: (key, order) =>
+        set((state) => ({
+          columnOrder: { ...state.columnOrder, [key]: order }
+        })),
+
+      resetColumnOrder: (key) =>
+        set((state) => {
+          if (!(key in state.columnOrder)) return {}
+          const next = { ...state.columnOrder }
+          delete next[key]
+          return { columnOrder: next }
+        })
     }),
     {
       name: 'dynamite-ui',
-      // Only persist editor preferences; open tables are session state.
+      // Only persist editor preferences + column order; open tables are session state.
       partialize: (state) => ({
         editView: state.editView,
-        editRawFormat: state.editRawFormat
+        editRawFormat: state.editRawFormat,
+        columnOrder: state.columnOrder
       })
     }
   )

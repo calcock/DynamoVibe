@@ -5,26 +5,49 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type Header,
   type Row,
   type SortingState
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { ActionIcon, Box, Code, Group, Menu, Text } from '@mantine/core'
 import {
   IconArrowDown,
   IconArrowsSort,
   IconArrowUp,
+  IconColumns,
   IconCopy,
   IconDotsVertical,
   IconKey,
   IconPencil,
+  IconRestore,
   IconTrash
 } from '@tabler/icons-react'
 import type { DocItem, DocValue } from '@shared/marshal'
 import type { KeySchemaElement } from '@shared/types'
 import { previewValue, ddbTypeOf, isTagged } from '../lib/docValue'
+import { tableKey as makeTableKey, useUiStore } from '../store'
+
+const ACTIONS_ID = '__actions'
 
 interface DataGridProps {
+  connectionId: string
+  tableName: string
   items: DocItem[]
   keySchema: KeySchemaElement[]
   readOnly: boolean
@@ -36,6 +59,8 @@ interface DataGridProps {
 const ROW_HEIGHT = 34
 
 export function DataGrid({
+  connectionId,
+  tableName,
   items,
   keySchema,
   readOnly,
@@ -43,6 +68,11 @@ export function DataGrid({
   onDuplicateItem,
   onDeleteItem
 }: DataGridProps): JSX.Element {
+  const gridKey = makeTableKey(connectionId, tableName)
+  const savedOrder = useUiStore((s) => s.columnOrder[gridKey])
+  const setColumnOrder = useUiStore((s) => s.setColumnOrder)
+  const resetColumnOrder = useUiStore((s) => s.resetColumnOrder)
+
   const keyNames = useMemo(() => keySchema.map((k) => k.attributeName), [keySchema])
 
   const columnKeys = useMemo(() => {
@@ -66,6 +96,22 @@ export function DataGrid({
     return order
   }, [items, keyNames])
 
+  // Effective data-column order: saved order reconciled against the live
+  // attribute set — keep saved ids that still exist, append newly-seen ones.
+  const orderedKeys = useMemo(() => {
+    if (!savedOrder || savedOrder.length === 0) return columnKeys
+    const live = new Set(columnKeys)
+    const result = savedOrder.filter((id) => live.has(id))
+    const placed = new Set(result)
+    for (const id of columnKeys) {
+      if (!placed.has(id)) result.push(id)
+    }
+    return result
+  }, [savedOrder, columnKeys])
+
+  const hasActions = Boolean(onEditItem || onDeleteItem || onDuplicateItem)
+  const isCustomized = Boolean(savedOrder && savedOrder.length > 0)
+
   const columns = useMemo<ColumnDef<DocItem>[]>(() => {
     const cols: ColumnDef<DocItem>[] = columnKeys.map((key) => ({
       id: key,
@@ -87,8 +133,13 @@ export function DataGrid({
 
     if (onEditItem || onDeleteItem || onDuplicateItem) {
       cols.push({
-        id: '__actions',
-        header: () => null,
+        id: ACTIONS_ID,
+        header: () => (
+          <ColumnOptionsMenu
+            isCustomized={isCustomized}
+            onReset={() => resetColumnOrder(gridKey)}
+          />
+        ),
         size: 44,
         enableSorting: false,
         cell: (ctx) => (
@@ -103,18 +154,49 @@ export function DataGrid({
       })
     }
     return cols
-  }, [columnKeys, keyNames, onEditItem, onDeleteItem, onDuplicateItem, readOnly])
+  }, [
+    columnKeys,
+    keyNames,
+    onEditItem,
+    onDeleteItem,
+    onDuplicateItem,
+    readOnly,
+    isCustomized,
+    resetColumnOrder,
+    gridKey
+  ])
 
   const [sorting, setSorting] = useState<SortingState>([])
+
+  // Controlled column order: data columns follow the reconciled order; the
+  // actions column (if any) is always pinned last.
+  const columnOrder = useMemo(
+    () => (hasActions ? [...orderedKeys, ACTIONS_ID] : orderedKeys),
+    [orderedKeys, hasActions]
+  )
 
   const table = useReactTable({
     data: items,
     columns,
-    state: { sorting },
+    state: { sorting, columnOrder },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel()
   })
+
+  const sensors = useSensors(
+    // A small drag threshold so a plain click still toggles sorting.
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
+
+  const handleDragEnd = (event: DragEndEvent): void => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = orderedKeys.indexOf(String(active.id))
+    const to = orderedKeys.indexOf(String(over.id))
+    if (from === -1 || to === -1) return
+    setColumnOrder(gridKey, arrayMove(orderedKeys, from, to))
+  }
 
   const parentRef = useRef<HTMLDivElement>(null)
   const rows = table.getRowModel().rows
@@ -149,44 +231,31 @@ export function DataGrid({
           columns stay aligned (a virtualized body can't share a <table> layout
           with the header). */}
       <Box style={{ width: Math.max(totalWidth, 0), minWidth: '100%' }}>
-        <Box
-          style={{
-            display: 'flex',
-            position: 'sticky',
-            top: 0,
-            zIndex: 2,
-            background: 'var(--mantine-color-dark-7)'
-          }}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
         >
-          {table.getHeaderGroups()[0]?.headers.map((header) => {
-            const isActions = header.column.id === '__actions'
-            const canSort = header.column.getCanSort()
-            const sorted = header.column.getIsSorted()
-            return (
-              <Box
-                key={header.id}
-                onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
-                style={{
-                  ...cellBox(header.id),
-                  padding: '6px 8px',
-                  borderBottom: '1px solid var(--mantine-color-dark-4)',
-                  zIndex: isActions ? 3 : undefined,
-                  cursor: canSort ? 'pointer' : undefined,
-                  userSelect: canSort ? 'none' : undefined,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 4
-                }}
-              >
-                {header.isPlaceholder
-                  ? null
-                  : flexRender(header.column.columnDef.header, header.getContext())}
-                {canSort && <SortIndicator state={sorted} />}
-              </Box>
-            )
-          })}
-        </Box>
+          <Box
+            style={{
+              display: 'flex',
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              background: 'var(--mantine-color-dark-7)'
+            }}
+          >
+            <SortableContext items={orderedKeys} strategy={horizontalListSortingStrategy}>
+              {table.getHeaderGroups()[0]?.headers.map((header) =>
+                header.column.id === ACTIONS_ID ? (
+                  <ActionsHeader key={header.id} header={header} />
+                ) : (
+                  <SortableHeader key={header.id} header={header} />
+                )
+              )}
+            </SortableContext>
+          </Box>
+        </DndContext>
 
         <Box style={{ position: 'relative', height: virtualizer.getTotalSize() }}>
           {virtualRows.map((vr) => {
@@ -214,7 +283,7 @@ export function DataGrid({
                       display: 'flex',
                       alignItems: 'center',
                       borderBottom: '1px solid var(--mantine-color-dark-6)',
-                      zIndex: cell.column.id === '__actions' ? 1 : undefined
+                      zIndex: cell.column.id === ACTIONS_ID ? 1 : undefined
                     }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -229,11 +298,97 @@ export function DataGrid({
   )
 }
 
-const colWidth = (id: string): number => (id === '__actions' ? 44 : 220)
+/** Draggable, sortable header cell for a data column. */
+function SortableHeader({ header }: { header: Header<DocItem, unknown> }): JSX.Element {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: header.column.id })
+  const canSort = header.column.getCanSort()
+  const sorted = header.column.getIsSorted()
+  return (
+    <Box
+      ref={setNodeRef}
+      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+      {...attributes}
+      {...listeners}
+      style={{
+        ...cellBox(header.id),
+        padding: '6px 8px',
+        borderBottom: '1px solid var(--mantine-color-dark-4)',
+        cursor: 'grab',
+        userSelect: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 4,
+        transform: CSS.Translate.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : undefined,
+        zIndex: isDragging ? 4 : undefined,
+        background: isDragging ? 'var(--mantine-color-dark-5)' : undefined
+      }}
+    >
+      {header.isPlaceholder
+        ? null
+        : flexRender(header.column.columnDef.header, header.getContext())}
+      {canSort && <SortIndicator state={sorted} />}
+    </Box>
+  )
+}
+
+/** The pinned actions/options header cell (not draggable). */
+function ActionsHeader({ header }: { header: Header<DocItem, unknown> }): JSX.Element {
+  return (
+    <Box
+      style={{
+        ...cellBox(header.id),
+        padding: '6px 8px',
+        borderBottom: '1px solid var(--mantine-color-dark-4)',
+        zIndex: 3,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      {header.isPlaceholder
+        ? null
+        : flexRender(header.column.columnDef.header, header.getContext())}
+    </Box>
+  )
+}
+
+/** Grid options menu (top-right corner): reset column order to default. */
+function ColumnOptionsMenu({
+  isCustomized,
+  onReset
+}: {
+  isCustomized: boolean
+  onReset: () => void
+}): JSX.Element {
+  return (
+    <Menu position="bottom-end" withinPortal>
+      <Menu.Target>
+        <ActionIcon variant="subtle" color="gray" size="sm" title="Column options">
+          <IconColumns size={14} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item
+          leftSection={<IconRestore size={14} />}
+          disabled={!isCustomized}
+          onClick={onReset}
+        >
+          Reset column order
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  )
+}
+
+const colWidth = (id: string): number => (id === ACTIONS_ID ? 44 : 220)
 
 /** Shared per-column box sizing used by both header and body cells. */
 function cellBox(id: string): React.CSSProperties {
-  const isActions = id === '__actions'
+  const isActions = id === ACTIONS_ID
   return {
     width: colWidth(id),
     flex: `0 0 ${colWidth(id)}px`,

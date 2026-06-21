@@ -110,6 +110,8 @@ export function BrowseTab({
 
       <Box style={{ flex: 1, minHeight: 0 }}>
         <DataGrid
+          connectionId={connection.id}
+          tableName={table.tableName}
           items={pager.items}
           keySchema={table.keySchema}
           readOnly={connection.readOnly}
