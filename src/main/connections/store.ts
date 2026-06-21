@@ -14,7 +14,7 @@ interface PersistShape {
 }
 
 const store = new Store<PersistShape>({
-  name: 'dynamite-connections',
+  name: 'dynamovibe-connections',
   defaults: { connections: [], secrets: {} }
 })
 

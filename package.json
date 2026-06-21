@@ -1,5 +1,5 @@
 {
-  "name": "dynamite",
+  "name": "dynamovibe",
   "version": "0.1.0",
   "description": "Cross-platform desktop GUI client for Amazon DynamoDB",
   "main": "./out/main/index.js",

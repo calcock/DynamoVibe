@@ -31,7 +31,7 @@ const toWire = (v: Record<string, AttributeValue> | undefined): WireItem =>
   (v ?? {}) as unknown as WireItem
 
 run('dynamodb-local integration', () => {
-  const TABLE = `dynamite_it_${Date.now()}`
+  const TABLE = `dynamovibe_it_${Date.now()}`
   const client = new DynamoDBClient({
     region: 'us-east-1',
     endpoint,

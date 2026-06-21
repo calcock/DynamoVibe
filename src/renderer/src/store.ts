@@ -106,7 +106,7 @@ export const useUiStore = create<UiState>()(
         })
     }),
     {
-      name: 'dynamite-ui',
+      name: 'dynamovibe-ui',
       // Only persist editor preferences + column order; open tables are session state.
       partialize: (state) => ({
         editView: state.editView,

@@ -15,7 +15,7 @@ export function App(): JSX.Element {
         <Group h="100%" px="sm" justify="space-between">
           <Group gap={6}>
             <IconBolt size={20} color="var(--mantine-color-yellow-5)" />
-            <Text fw={700}>Dynamite</Text>
+            <Text fw={700}>DynamoVibe</Text>
             <Text size="xs" c="dimmed">
               DynamoDB client
             </Text>

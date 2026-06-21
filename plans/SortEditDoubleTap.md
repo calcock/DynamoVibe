@@ -1,6 +1,6 @@
 # Grid Sorting, Pinned Actions, Double-Tap Edit & Remembered Edit Mode
 
-Summary of changes made to the Dynamite DynamoDB browser (React + Mantine + TanStack Table/Virtual + Zustand, Electron).
+Summary of changes made to the DynamoVibe DynamoDB browser (React + Mantine + TanStack Table/Virtual + Zustand, Electron).
 
 ## Features implemented
 
@@ -28,7 +28,7 @@ Summary of changes made to the Dynamite DynamoDB browser (React + Mantine + TanS
 - Added `onDoubleClick={() => onEditItem(row.original)}` to the row container with `cursor: pointer` when editing is available. Reuses the existing `onEditItem` callback (same path as the `⋮` menu Edit/View), so it works in read-only ("View") mode too.
 
 ### `src/renderer/src/store.ts`
-- Wrapped `useUiStore` in Zustand `persist` middleware (key `dynamite-ui`).
+- Wrapped `useUiStore` in Zustand `persist` middleware (key `dynamovibe-ui`).
 - Added persisted prefs `editView: 'tree' | 'raw'` and `editRawFormat: 'document' | 'wire'` (exported types `EditViewMode`, `EditRawFormat`) plus setters `setEditView`, `setEditRawFormat`.
 - `partialize` persists **only** the editor prefs — `openTables`/active selection remain session-only.
 

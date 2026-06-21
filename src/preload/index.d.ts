@@ -1,8 +1,8 @@
-import type { DynamiteApi } from '@shared/ipc'
+import type { DynamoVibeApi } from '@shared/ipc'
 
 declare global {
   interface Window {
-    api: DynamiteApi
+    api: DynamoVibeApi
   }
 }
 

@@ -4,7 +4,7 @@
 
 Provide a script that connects to local DynamoDB (dynamodb-local), creates 4
 sample tables, and populates each with at least 100 rows of sample data — so the
-Dynamite GUI has realistic, browsable data to work against.
+DynamoVibe GUI has realistic, browsable data to work against.
 
 ## What was built
 

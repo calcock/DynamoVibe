@@ -39,7 +39,7 @@ export const IPC = {
  * The shape exposed on `window.api` by the preload bridge. Every method returns
  * a promise that resolves with the unwrapped data or rejects with an Error.
  */
-export interface DynamiteApi {
+export interface DynamoVibeApi {
   listConnections(): Promise<ConnectionConfig[]>
   saveConnection(input: ConnectionInput): Promise<ConnectionConfig>
   deleteConnection(id: string): Promise<void>

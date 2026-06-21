@@ -11,7 +11,7 @@ to restore the default order.
 - **Reset control:** a column-options menu (⋮) in the pinned top-right corner of
   the grid itself — self-contained in `DataGrid`, no parent-toolbar changes.
 - **Persistence:** reuse the existing zustand + localStorage UI store
-  (`dynamite-ui`), the same mechanism already used for editor prefs. Order is
+  (`dynamovibe-ui`), the same mechanism already used for editor prefs. Order is
   scoped by the existing `connectionId::tableName` composite key.
 
 ## Codebase context

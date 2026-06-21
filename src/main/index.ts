@@ -9,7 +9,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    title: 'Dynamite',
+    title: 'DynamoVibe',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,

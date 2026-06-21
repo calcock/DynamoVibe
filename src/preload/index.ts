@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type DynamiteApi } from '@shared/ipc'
+import { IPC, type DynamoVibeApi } from '@shared/ipc'
 
-const api: DynamiteApi = {
+const api: DynamoVibeApi = {
   listConnections: () => ipcRenderer.invoke(IPC.connectionsList),
   saveConnection: (input) => ipcRenderer.invoke(IPC.connectionsSave, input),
   deleteConnection: (id) => ipcRenderer.invoke(IPC.connectionsDelete, id),

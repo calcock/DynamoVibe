@@ -1,4 +1,4 @@
-# Dynamite
+# DynamoVibe
 
 A cross-platform (Windows + macOS) desktop GUI client for Amazon DynamoDB, built
 with Electron + React + TypeScript.
