@@ -1,13 +1,19 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
   useReactTable,
-  type ColumnDef
+  type ColumnDef,
+  type Row,
+  type SortingState
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ActionIcon, Box, Code, Group, Menu, Text } from '@mantine/core'
 import {
+  IconArrowDown,
+  IconArrowsSort,
+  IconArrowUp,
   IconCopy,
   IconDotsVertical,
   IconKey,
@@ -16,7 +22,7 @@ import {
 } from '@tabler/icons-react'
 import type { DocItem, DocValue } from '@shared/marshal'
 import type { KeySchemaElement } from '@shared/types'
-import { previewValue, ddbTypeOf } from '../lib/docValue'
+import { previewValue, ddbTypeOf, isTagged } from '../lib/docValue'
 
 interface DataGridProps {
   items: DocItem[]
@@ -74,7 +80,9 @@ export function DataGrid({
           </Text>
         </Group>
       ),
-      cell: (ctx) => <Cell value={ctx.getValue() as DocValue | undefined} />
+      cell: (ctx) => <Cell value={ctx.getValue() as DocValue | undefined} />,
+      sortingFn: docSortingFn,
+      sortUndefined: 'last'
     }))
 
     if (onEditItem || onDeleteItem || onDuplicateItem) {
@@ -82,6 +90,7 @@ export function DataGrid({
         id: '__actions',
         header: () => null,
         size: 44,
+        enableSorting: false,
         cell: (ctx) => (
           <RowActions
             item={ctx.row.original}
@@ -96,10 +105,15 @@ export function DataGrid({
     return cols
   }, [columnKeys, keyNames, onEditItem, onDeleteItem, onDuplicateItem, readOnly])
 
+  const [sorting, setSorting] = useState<SortingState>([])
+
   const table = useReactTable({
     data: items,
     columns,
-    getCoreRowModel: getCoreRowModel()
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel()
   })
 
   const parentRef = useRef<HTMLDivElement>(null)
@@ -144,20 +158,34 @@ export function DataGrid({
             background: 'var(--mantine-color-dark-7)'
           }}
         >
-          {table.getHeaderGroups()[0]?.headers.map((header) => (
-            <Box
-              key={header.id}
-              style={{
-                ...cellBox(header.id),
-                padding: '6px 8px',
-                borderBottom: '1px solid var(--mantine-color-dark-4)'
-              }}
-            >
-              {header.isPlaceholder
-                ? null
-                : flexRender(header.column.columnDef.header, header.getContext())}
-            </Box>
-          ))}
+          {table.getHeaderGroups()[0]?.headers.map((header) => {
+            const isActions = header.column.id === '__actions'
+            const canSort = header.column.getCanSort()
+            const sorted = header.column.getIsSorted()
+            return (
+              <Box
+                key={header.id}
+                onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                style={{
+                  ...cellBox(header.id),
+                  padding: '6px 8px',
+                  borderBottom: '1px solid var(--mantine-color-dark-4)',
+                  zIndex: isActions ? 3 : undefined,
+                  cursor: canSort ? 'pointer' : undefined,
+                  userSelect: canSort ? 'none' : undefined,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 4
+                }}
+              >
+                {header.isPlaceholder
+                  ? null
+                  : flexRender(header.column.columnDef.header, header.getContext())}
+                {canSort && <SortIndicator state={sorted} />}
+              </Box>
+            )
+          })}
         </Box>
 
         <Box style={{ position: 'relative', height: virtualizer.getTotalSize() }}>
@@ -183,7 +211,8 @@ export function DataGrid({
                       padding: '4px 8px',
                       display: 'flex',
                       alignItems: 'center',
-                      borderBottom: '1px solid var(--mantine-color-dark-6)'
+                      borderBottom: '1px solid var(--mantine-color-dark-6)',
+                      zIndex: cell.column.id === '__actions' ? 1 : undefined
                     }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -202,6 +231,7 @@ const colWidth = (id: string): number => (id === '__actions' ? 44 : 220)
 
 /** Shared per-column box sizing used by both header and body cells. */
 function cellBox(id: string): React.CSSProperties {
+  const isActions = id === '__actions'
   return {
     width: colWidth(id),
     flex: `0 0 ${colWidth(id)}px`,
@@ -209,8 +239,49 @@ function cellBox(id: string): React.CSSProperties {
     overflow: 'hidden',
     whiteSpace: 'nowrap',
     textOverflow: 'ellipsis',
-    borderRight: '1px solid var(--mantine-color-dark-6)'
+    borderRight: isActions ? undefined : '1px solid var(--mantine-color-dark-6)',
+    // Pin the actions column to the right edge so it stays visible while the
+    // rest of the columns scroll horizontally underneath it.
+    ...(isActions
+      ? {
+          position: 'sticky',
+          right: 0,
+          background: 'var(--mantine-color-dark-7)',
+          borderLeft: '1px solid var(--mantine-color-dark-4)'
+        }
+      : {})
   }
+}
+
+/** Maps a document value to a comparable primitive so columns with mixed/typed
+ *  DynamoDB values sort sensibly (numbers numerically, complex types by preview). */
+function sortKey(v: DocValue | undefined): string | number | boolean {
+  if (v === undefined || v === null) return ''
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v
+  if (isTagged(v) && v.__ddb === 'N') return Number(v.value)
+  return previewValue(v)
+}
+
+/** Sorting comparator for data columns covering DynamoDB document values. */
+function docSortingFn(a: Row<DocItem>, b: Row<DocItem>, columnId: string): number {
+  const av = sortKey(a.getValue(columnId) as DocValue | undefined)
+  const bv = sortKey(b.getValue(columnId) as DocValue | undefined)
+  if (typeof av === 'number' && typeof bv === 'number') return av - bv
+  const as = String(av)
+  const bs = String(bv)
+  return as < bs ? -1 : as > bs ? 1 : 0
+}
+
+function SortIndicator({ state }: { state: false | 'asc' | 'desc' }): JSX.Element {
+  if (state === 'asc') return <IconArrowUp size={12} style={{ flexShrink: 0 }} />
+  if (state === 'desc') return <IconArrowDown size={12} style={{ flexShrink: 0 }} />
+  return (
+    <IconArrowsSort
+      size={12}
+      style={{ flexShrink: 0, opacity: 0.35 }}
+      color="var(--mantine-color-dimmed)"
+    />
+  )
 }
 
 function Center({ children }: { children: React.ReactNode }): JSX.Element {
