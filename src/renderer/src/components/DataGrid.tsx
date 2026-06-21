@@ -194,13 +194,15 @@ export function DataGrid({
             return (
               <Box
                 key={row.id}
+                onDoubleClick={onEditItem ? () => onEditItem(row.original) : undefined}
                 style={{
                   position: 'absolute',
                   top: 0,
                   left: 0,
                   transform: `translateY(${vr.start}px)`,
                   display: 'flex',
-                  height: ROW_HEIGHT
+                  height: ROW_HEIGHT,
+                  cursor: onEditItem ? 'pointer' : undefined
                 }}
               >
                 {row.getVisibleCells().map((cell) => (

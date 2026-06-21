@@ -28,9 +28,7 @@ import { TreeEditor, type Entry } from './TreeEditor'
 import { CodeEditor } from './CodeEditor'
 import { notifyError, notifySuccess } from '../lib/notify'
 import type { ItemEditorRequest } from './TableWorkspace'
-
-type ViewMode = 'tree' | 'raw'
-type RawFormat = 'document' | 'wire'
+import { useUiStore, type EditViewMode as ViewMode, type EditRawFormat as RawFormat } from '../store'
 
 export function ItemEditor({
   connection,
@@ -50,23 +48,30 @@ export function ItemEditor({
     [table.keySchema]
   )
 
-  const [view, setView] = useState<ViewMode>('tree')
-  const [rawFormat, setRawFormat] = useState<RawFormat>('document')
+  // View + raw format are remembered across sessions in the UI store.
+  const view = useUiStore((s) => s.editView)
+  const setView = useUiStore((s) => s.setEditView)
+  const rawFormat = useUiStore((s) => s.editRawFormat)
+  const setRawFormat = useUiStore((s) => s.setEditRawFormat)
   const [entries, setEntries] = useState<Entry[]>([])
   const [rawText, setRawText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [onlyIfNotExists, setOnlyIfNotExists] = useState(!isEdit)
   const [saving, setSaving] = useState(false)
 
-  // Initialise from the request once.
+  // Initialise from the request once. The active view/raw format are kept from
+  // the persisted preference, so the editor reopens in the last-used mode; only
+  // seed the raw text in whichever format is current.
   useEffect(() => {
     const seed: DocItem = request.item ?? {}
     setEntries(docItemToEntries(seed))
-    setRawText(docItemToDocumentJson(seed))
-    setRawFormat('document')
-    setView('tree')
+    setRawText(
+      rawFormat === 'wire' ? docItemToWireJson(seed) : docItemToDocumentJson(seed)
+    )
     setError(null)
     setOnlyIfNotExists(!isEdit)
+    // rawFormat intentionally read, not depended on: it only seeds the text on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request, isEdit])
 
   const serialize = (item: DocItem, fmt: RawFormat): string =>
