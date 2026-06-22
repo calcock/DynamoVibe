@@ -46,7 +46,7 @@
     "aws-sdk-client-mock": "^4.0.0",
     "electron": "^31.2.0",
     "electron-builder": "^24.13.3",
-    "electron-vite": "^2.3.0",
+    "electron-vite": "^5.0.0",
     "monaco-editor": "^0.50.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
