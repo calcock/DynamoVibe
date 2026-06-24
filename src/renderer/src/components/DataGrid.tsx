@@ -57,6 +57,9 @@ interface DataGridProps {
 }
 
 const ROW_HEIGHT = 34
+const DEFAULT_COL_WIDTH = 220
+const ACTIONS_WIDTH = 44
+const MIN_COL_WIDTH = 60
 
 export function DataGrid({
   connectionId,
@@ -70,8 +73,20 @@ export function DataGrid({
 }: DataGridProps): JSX.Element {
   const gridKey = makeTableKey(connectionId, tableName)
   const savedOrder = useUiStore((s) => s.columnOrder[gridKey])
+  const savedWidths = useUiStore((s) => s.columnWidths[gridKey])
   const setColumnOrder = useUiStore((s) => s.setColumnOrder)
-  const resetColumnOrder = useUiStore((s) => s.resetColumnOrder)
+  const setColumnWidth = useUiStore((s) => s.setColumnWidth)
+  const resetColumns = useUiStore((s) => s.resetColumns)
+
+  // Live width while a column is being dragged-resized; committed to the store on
+  // pointer-up so we re-render the grid smoothly without persisting every move.
+  const [resizeDraft, setResizeDraft] = useState<{ id: string; width: number } | null>(null)
+
+  const widthFor = (id: string): number => {
+    if (id === ACTIONS_ID) return ACTIONS_WIDTH
+    if (resizeDraft?.id === id) return resizeDraft.width
+    return savedWidths?.[id] ?? DEFAULT_COL_WIDTH
+  }
 
   const keyNames = useMemo(() => keySchema.map((k) => k.attributeName), [keySchema])
 
@@ -110,7 +125,10 @@ export function DataGrid({
   }, [savedOrder, columnKeys])
 
   const hasActions = Boolean(onEditItem || onDeleteItem || onDuplicateItem)
-  const isCustomized = Boolean(savedOrder && savedOrder.length > 0)
+  const isCustomized = Boolean(
+    (savedOrder && savedOrder.length > 0) ||
+      (savedWidths && Object.keys(savedWidths).length > 0)
+  )
 
   const columns = useMemo<ColumnDef<DocItem>[]>(() => {
     const cols: ColumnDef<DocItem>[] = columnKeys.map((key) => ({
@@ -137,7 +155,7 @@ export function DataGrid({
         header: () => (
           <ColumnOptionsMenu
             isCustomized={isCustomized}
-            onReset={() => resetColumnOrder(gridKey)}
+            onReset={() => resetColumns(gridKey)}
           />
         ),
         size: 44,
@@ -162,7 +180,7 @@ export function DataGrid({
     onDuplicateItem,
     readOnly,
     isCustomized,
-    resetColumnOrder,
+    resetColumns,
     gridKey
   ])
 
@@ -198,6 +216,17 @@ export function DataGrid({
     setColumnOrder(gridKey, arrayMove(orderedKeys, from, to))
   }
 
+  // Live-updates the draft width during a header-edge drag; commits to the store
+  // (and clears the draft) when the drag ends.
+  const handleColumnResize = (id: string, width: number, commit: boolean): void => {
+    if (commit) {
+      setResizeDraft(null)
+      setColumnWidth(gridKey, id, width)
+    } else {
+      setResizeDraft({ id, width })
+    }
+  }
+
   const parentRef = useRef<HTMLDivElement>(null)
   const rows = table.getRowModel().rows
   const virtualizer = useVirtualizer({
@@ -219,7 +248,7 @@ export function DataGrid({
 
   const virtualRows = virtualizer.getVirtualItems()
   const leafColumns = table.getVisibleLeafColumns()
-  const totalWidth = leafColumns.reduce((sum, c) => sum + colWidth(c.id), 0)
+  const totalWidth = leafColumns.reduce((sum, c) => sum + widthFor(c.id), 0)
 
   return (
     <Box
@@ -248,9 +277,14 @@ export function DataGrid({
             <SortableContext items={orderedKeys} strategy={horizontalListSortingStrategy}>
               {table.getHeaderGroups()[0]?.headers.map((header) =>
                 header.column.id === ACTIONS_ID ? (
-                  <ActionsHeader key={header.id} header={header} />
+                  <ActionsHeader key={header.id} header={header} width={widthFor(header.id)} />
                 ) : (
-                  <SortableHeader key={header.id} header={header} />
+                  <SortableHeader
+                    key={header.id}
+                    header={header}
+                    width={widthFor(header.id)}
+                    onResize={handleColumnResize}
+                  />
                 )
               )}
             </SortableContext>
@@ -278,7 +312,7 @@ export function DataGrid({
                   <Box
                     key={cell.id}
                     style={{
-                      ...cellBox(cell.column.id),
+                      ...cellBox(cell.column.id, widthFor(cell.column.id)),
                       padding: '4px 8px',
                       display: 'flex',
                       alignItems: 'center',
@@ -298,12 +332,44 @@ export function DataGrid({
   )
 }
 
-/** Draggable, sortable header cell for a data column. */
-function SortableHeader({ header }: { header: Header<DocItem, unknown> }): JSX.Element {
+/** Draggable, sortable header cell for a data column, with a resize handle. */
+function SortableHeader({
+  header,
+  width,
+  onResize
+}: {
+  header: Header<DocItem, unknown>
+  width: number
+  onResize: (id: string, width: number, commit: boolean) => void
+}): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: header.column.id })
   const canSort = header.column.getCanSort()
   const sorted = header.column.getIsSorted()
+
+  // Pointer-driven edge resize. stopPropagation keeps dnd-kit from starting a
+  // column-reorder drag, and we listen on the window so the drag continues even
+  // if the pointer leaves the thin handle.
+  const startResize = (e: React.PointerEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startWidth = width
+    const id = header.column.id
+    const onMove = (ev: PointerEvent): void => {
+      const next = Math.max(MIN_COL_WIDTH, startWidth + (ev.clientX - startX))
+      onResize(id, next, false)
+    }
+    const onUp = (ev: PointerEvent): void => {
+      const next = Math.max(MIN_COL_WIDTH, startWidth + (ev.clientX - startX))
+      onResize(id, next, true)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   return (
     <Box
       ref={setNodeRef}
@@ -311,7 +377,8 @@ function SortableHeader({ header }: { header: Header<DocItem, unknown> }): JSX.E
       {...attributes}
       {...listeners}
       style={{
-        ...cellBox(header.id),
+        ...cellBox(header.id, width),
+        position: 'relative',
         padding: '6px 8px',
         borderBottom: '1px solid var(--mantine-color-dark-4)',
         cursor: 'grab',
@@ -331,16 +398,37 @@ function SortableHeader({ header }: { header: Header<DocItem, unknown> }): JSX.E
         ? null
         : flexRender(header.column.columnDef.header, header.getContext())}
       {canSort && <SortIndicator state={sorted} />}
+      <Box
+        onPointerDown={startResize}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          height: '100%',
+          width: 6,
+          cursor: 'col-resize',
+          zIndex: 5,
+          userSelect: 'none',
+          touchAction: 'none'
+        }}
+      />
     </Box>
   )
 }
 
 /** The pinned actions/options header cell (not draggable). */
-function ActionsHeader({ header }: { header: Header<DocItem, unknown> }): JSX.Element {
+function ActionsHeader({
+  header,
+  width
+}: {
+  header: Header<DocItem, unknown>
+  width: number
+}): JSX.Element {
   return (
     <Box
       style={{
-        ...cellBox(header.id),
+        ...cellBox(header.id, width),
         padding: '6px 8px',
         borderBottom: '1px solid var(--mantine-color-dark-4)',
         zIndex: 3,
@@ -384,14 +472,12 @@ function ColumnOptionsMenu({
   )
 }
 
-const colWidth = (id: string): number => (id === ACTIONS_ID ? 44 : 220)
-
 /** Shared per-column box sizing used by both header and body cells. */
-function cellBox(id: string): React.CSSProperties {
+function cellBox(id: string, width: number): React.CSSProperties {
   const isActions = id === ACTIONS_ID
   return {
-    width: colWidth(id),
-    flex: `0 0 ${colWidth(id)}px`,
+    width,
+    flex: `0 0 ${width}px`,
     boxSizing: 'border-box',
     overflow: 'hidden',
     whiteSpace: 'nowrap',
